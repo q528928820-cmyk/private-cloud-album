@@ -1,0 +1,6 @@
+name = "private-cloud-album"
+compatibility_date = "2026-11-16"
+pages_build_output_dir = "."
+
+# Cloudflare Pages 项目中还需要在 Settings > Functions > D1 database bindings
+# 添加变量名 DB，并选择你的 D1 数据库。
