@@ -1,3 +1,4 @@
+
 const VIEW_HTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -26,8 +27,9 @@ h2{margin:0 0 8px;font-size:23px}
 .login-desc{color:#91a3bd;font-size:13px;margin-bottom:25px}
 input{width:100%;font:inherit;padding:14px 15px;border-radius:11px;border:1px solid #344762;background:#0c1728;color:white;outline:none}
 input:focus{border-color:#78a5ff;box-shadow:0 0 0 3px #5c8df52b}
-button{font:inherit;border:0;border-radius:11px;padding:12px 18px;background:#6595ff;color:#08152b;font-weight:700;cursor:pointer}
+button,select{font:inherit;border:0;border-radius:11px;padding:12px 18px;background:#6595ff;color:#08152b;font-weight:700;cursor:pointer}
 button:active{transform:scale(.98)}
+button:disabled{opacity:.35;cursor:not-allowed;transform:none}
 #loginBtn{width:100%;margin-top:13px}
 #albums{display:flex;gap:9px;flex-wrap:wrap;margin-top:17px}
 .album{background:#23334b;color:#c6d6f0;border:1px solid #ffffff12;padding:10px 17px;border-radius:30px;font-size:14px}
@@ -44,49 +46,66 @@ button:active{transform:scale(.98)}
 .hidden{display:none!important}
 #msg{color:#ffcf83;text-align:center;margin:12px 0;min-height:22px;font-size:13px}
 
-/* 看图时藏起相册，避免从缝里露出页面 */
-html.viewing,html.viewing body{
- background:#000;
- overflow:hidden;
- height:100%;
+/* 前台分页 */
+#pagination{
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ flex-wrap:wrap;
+ gap:10px;
+ margin-top:22px;
 }
-html.viewing main{visibility:hidden}
+#pagination button{
+ padding:10px 16px;
+ background:#263b59;
+ color:#dce8ff;
+ border:1px solid #ffffff18;
+}
+#pagination button:disabled{opacity:.35}
+#pageInfo{color:#a9bbd7;font-size:13px;min-width:90px;text-align:center}
+#pageSize{
+ background:#263b59;
+ color:#dce8ff;
+ border:1px solid #ffffff18;
+ padding:9px 12px;
+ border-radius:10px;
+}
+#pagination label{color:#91a3bd;font-size:13px}
 
-/* 照片查看器：铺满可见屏幕，没有按钮 */
+/* 照片查看器：全屏，无按钮，无网页内容 */
 #viewer{
  position:fixed;
- top:0;
- left:0;
- right:0;
- bottom:0;
- width:100%;
- height:100%;
- min-height:100vh;
- min-height:100dvh;
+ inset:0;
+ width:100vw;
+ height:100vh;
+ height:100dvh;
  background:#000;
  display:none;
+ align-items:center;
+ justify-content:center;
  z-index:2147483647;
  overflow:hidden;
- margin:0;
  padding:0;
+ margin:0;
  touch-action:none;
  overscroll-behavior:none;
 }
 #viewer:fullscreen,
 #viewer:-webkit-full-screen{
- width:100%;
- height:100%;
+ width:100vw;
+ height:100vh;
+ height:100dvh;
  background:#000;
 }
 #big{
- position:absolute;
- top:0;
- left:0;
+ display:block;
  width:100%;
  height:100%;
+ max-width:100%;
+ max-height:100%;
  object-fit:contain;
  object-position:center;
- background:#000;
+ box-shadow:none;
  user-select:none;
  -webkit-user-select:none;
  -webkit-user-drag:none;
@@ -99,6 +118,10 @@ html.viewing main{visibility:hidden}
  #login{margin:65px auto;padding:30px 22px}
  #photos{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
  .photo-wrap{border-radius:11px}
+ #pagination{gap:7px}
+ #pagination button{padding:9px 12px;font-size:13px}
+ #pageInfo{min-width:75px;font-size:12px}
+ #pageSize{padding:8px;font-size:13px}
 }
 </style>
 </head>
@@ -127,6 +150,16 @@ html.viewing main{visibility:hidden}
  <section class="panel">
   <div class="section-head"><h3 id="albumTitle">照片</h3><span id="count"></span></div>
   <div id="photos"></div>
+  <div id="pagination" class="hidden">
+   <button id="prevPage" type="button">上一页</button>
+   <span id="pageInfo">第1页 / 共1页</span>
+   <button id="nextPage" type="button">下一页</button>
+   <label for="pageSize">每页</label>
+   <select id="pageSize">
+    <option value="10">10张</option>
+    <option value="20" selected>20张</option>
+   </select>
+  </div>
  </section>
 </div>
 <div id="msg"></div>
@@ -138,8 +171,9 @@ html.viewing main{visibility:hidden}
 let token="",albums=[],photos=[],current=0,urls=[];
 let viewerHistory=false;
 let viewerOpen=false;
-let fullscreenEntered=false;
 let touchStartX=0,touchStartY=0;
+let currentPage=1;
+let pageSize=20;
 
 const $=id=>document.getElementById(id);
 
@@ -166,6 +200,7 @@ async function loadAlbums(){
   $("albumTitle").textContent="还没有相册";
   $("photos").innerHTML='<div class="empty"><div class="empty-icon">▧</div>还没有创建相册</div>';
   $("count").textContent="";
+  $("pagination").classList.add("hidden");
   return;
  }
 
@@ -183,7 +218,9 @@ async function loadAlbums(){
 async function loadPhotos(id){
  try{
   clearUrls();
+  currentPage=1;
   $("photos").innerHTML="";
+  $("pagination").classList.add("hidden");
   photos=await api("/api/photos?album_id="+id);
 
   const album=albums.find(a=>a.id===id);
@@ -200,15 +237,9 @@ async function loadPhotos(id){
    return;
   }
 
+  // 获取照片数据，保留原来的照片查看功能
   for(let i=0;i<photos.length;i++){
    const p=photos[i];
-   const wrap=document.createElement("div");
-   wrap.className="photo-wrap";
-
-   const img=document.createElement("img");
-   img.className="photo";
-   img.alt=p.filename;
-   img.loading="lazy";
 
    const r=await fetch("/api/photo-file?id="+p.id,{
     headers:{Authorization:"Bearer "+token}
@@ -217,65 +248,85 @@ async function loadPhotos(id){
    if(!r.ok)throw Error("照片读取失败");
 
    const blob=await r.blob();
-   const u=URL.createObjectURL(blob);
-   urls.push(u);
-
-   img.src=u;
-   img.onclick=()=>openPhoto(i);
-
-   wrap.append(img);
-   $("photos").append(wrap);
+   urls[i]=URL.createObjectURL(blob);
   }
+
+  renderPhotoPage();
  }catch(e){
   say(e.message);
  }
 }
 
-/* 按手机可见区域铺满，避免地址栏把页面挤出来 */
-function fitViewer(){
- if(!viewerOpen)return;
- const viewer=$("viewer");
- const isFull=
-  document.fullscreenElement||
-  document.webkitFullscreenElement||
-  document.mozFullScreenElement||
-  document.msFullscreenElement;
- if(isFull){
-  viewer.style.top="0";
-  viewer.style.left="0";
-  viewer.style.width="100%";
-  viewer.style.height="100%";
-  return;
+/* 渲染当前页照片 */
+function renderPhotoPage(){
+ const totalPages=Math.max(1,Math.ceil(photos.length/pageSize));
+
+ if(currentPage>totalPages)currentPage=totalPages;
+ if(currentPage<1)currentPage=1;
+
+ $("photos").innerHTML="";
+
+ const start=(currentPage-1)*pageSize;
+ const end=Math.min(start+pageSize,photos.length);
+
+ for(let i=start;i<end;i++){
+  const p=photos[i];
+  const wrap=document.createElement("div");
+  wrap.className="photo-wrap";
+
+  const img=document.createElement("img");
+  img.className="photo";
+  img.alt=p.filename||"照片";
+  img.loading="lazy";
+  img.src=urls[i];
+  img.onclick=()=>openPhoto(i);
+
+  wrap.append(img);
+  $("photos").append(wrap);
  }
- const v=window.visualViewport;
- if(v){
-  viewer.style.top=v.offsetTop+"px";
-  viewer.style.left=v.offsetLeft+"px";
-  viewer.style.width=v.width+"px";
-  viewer.style.height=v.height+"px";
- }else{
-  viewer.style.top="0";
-  viewer.style.left="0";
-  viewer.style.width="100%";
-  viewer.style.height="100%";
- }
+
+ $("pagination").classList.remove("hidden");
+ $("pageInfo").textContent="第 "+currentPage+" 页 / 共 "+totalPages+" 页";
+ $("prevPage").disabled=currentPage<=1;
+ $("nextPage").disabled=currentPage>=totalPages;
 }
 
-/* 打开照片：整屏只有这一张，没有按钮 */
+/* 分页按钮 */
+$("prevPage").onclick=()=>{
+ if(currentPage>1){
+  currentPage--;
+  renderPhotoPage();
+  window.scrollTo({top:0,behavior:"smooth"});
+ }
+};
+
+$("nextPage").onclick=()=>{
+ const totalPages=Math.ceil(photos.length/pageSize);
+ if(currentPage<totalPages){
+  currentPage++;
+  renderPhotoPage();
+  window.scrollTo({top:0,behavior:"smooth"});
+ }
+};
+
+$("pageSize").onchange=()=>{
+ pageSize=Number($("pageSize").value)||20;
+ currentPage=1;
+ renderPhotoPage();
+};
+
+/* 打开照片：优先请求浏览器原生全屏 */
 function openPhoto(i){
  if(!photos.length)return;
 
  current=i;
  viewerOpen=true;
- fullscreenEntered=false;
 
  const viewer=$("viewer");
- viewer.style.display="block";
- document.documentElement.classList.add("viewing");
+ viewer.style.display="flex";
  document.body.style.overflow="hidden";
 
  showPhoto();
- fitViewer();
 
  if(!viewerHistory){
   history.pushState(
@@ -295,7 +346,9 @@ function openPhoto(i){
  if(request){
   try{
    const result=request.call(viewer,{navigationUI:"hide"});
-   if(result&&typeof result.catch==="function")result.catch(()=>{});
+   if(result&&typeof result.catch==="function"){
+    result.catch(()=>{});
+   }
   }catch(e){
    try{
     const fallback=request.call(viewer);
@@ -307,18 +360,16 @@ function openPhoto(i){
 
 function showPhoto(){
  if(!photos.length)return;
- $("big").src=urls[current];
+ $("big").src=urls[current]||"";
 }
 
 function closePhoto(fromPop=false){
  if(!viewerOpen)return;
 
  viewerOpen=false;
- fullscreenEntered=false;
 
  $("viewer").style.display="none";
  $("big").src="";
- document.documentElement.classList.remove("viewing");
  document.body.style.overflow="";
 
  const exit=
@@ -431,7 +482,7 @@ window.addEventListener("popstate",()=>{
  }
 });
 
-/* 只有真正进入过全屏、再退出时才关闭。失败时保持黑底全屏 */
+/* 监听浏览器退出全屏 */
 function onFullscreenChange(){
  const isFull=
   document.fullscreenElement||
@@ -439,14 +490,7 @@ function onFullscreenChange(){
   document.mozFullScreenElement||
   document.msFullscreenElement;
 
- if(isFull){
-  fullscreenEntered=true;
-  fitViewer();
-  return;
- }
-
- if(viewerOpen&&fullscreenEntered){
-  fullscreenEntered=false;
+ if(viewerOpen&&!isFull){
   closePhoto();
  }
 }
@@ -455,11 +499,6 @@ document.addEventListener("fullscreenchange",onFullscreenChange);
 document.addEventListener("webkitfullscreenchange",onFullscreenChange);
 document.addEventListener("mozfullscreenchange",onFullscreenChange);
 document.addEventListener("MSFullscreenChange",onFullscreenChange);
-
-if(window.visualViewport){
- window.visualViewport.addEventListener("resize",fitViewer);
- window.visualViewport.addEventListener("scroll",fitViewer);
-}
 </script>
 </body>
 </html>`;
