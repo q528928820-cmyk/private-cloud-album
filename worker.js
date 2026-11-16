@@ -62,6 +62,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 <script>
 let token="",albums=[],current=null,imageUrls=[];
 let photoPage=1,photoPageSize=20,photoTotal=0,photoTotalPages=0;
+let adminLoadSeq=0;
 const $=id=>document.getElementById(id);
 function say(s){$("msg").textContent=s}
 async function api(path,opts={}){
@@ -72,6 +73,16 @@ if(!r.ok)throw Error(data.error||("请求失败 "+r.status));
 return data
 }
 function clearImageUrls(){imageUrls.forEach(u=>URL.revokeObjectURL(u));imageUrls=[]}
+async function mapLimit(items,limit,fn){
+let next=0;
+const workers=Array.from({length:Math.min(limit,items.length)},async()=>{
+while(next<items.length){
+const i=next++;
+await fn(items[i],i)
+}
+});
+await Promise.all(workers)
+}
 async function loadAlbums(){
 albums=await api("/api/albums");
 if(current&&!albums.some(a=>a.id===current))current=null;
@@ -108,6 +119,7 @@ function renderAlbums(){
 [...$("albums").querySelectorAll(".album")].forEach((b,i)=>b.classList.toggle("active",albums[i].id===current))
 }
 async function loadPhotos(){
+const seq=++adminLoadSeq;
 clearImageUrls();$("photos").innerHTML="";
 if(!current){
 $("photos").textContent="请先创建一个相册";
@@ -116,6 +128,7 @@ return
 }
 try{
 let ps=await api("/api/photos?album_id="+current+"&page="+photoPage+"&page_size="+photoPageSize);
+if(seq!==adminLoadSeq)return;
 photoPage=ps.page;
 photoTotal=ps.total;
 photoTotalPages=ps.total_pages;
@@ -129,15 +142,9 @@ if(!ps.list.length){
 $("photos").textContent=photoTotal===0?"这个相册还没有照片":"当前页没有照片";
 return
 }
-for(let p of ps.list){
+const cards=ps.list.map(p=>{
 let card=document.createElement("div");card.className="photo";
 let img=document.createElement("img");img.alt=p.filename;img.loading="lazy";
-try{
-let response=await fetch("/api/photo-file?id="+p.id,{headers:{Authorization:"Bearer "+token}});
-if(!response.ok)throw Error("图片读取失败");
-let blob=await response.blob();
-let objectUrl=URL.createObjectURL(blob);imageUrls.push(objectUrl);img.src=objectUrl
-}catch(e){img.alt="图片加载失败"}
 let box=document.createElement("div");
 let name=document.createElement("small");name.textContent=p.filename;
 let del=document.createElement("button");del.textContent="删除";del.className="danger";del.style.marginTop="8px";
@@ -149,9 +156,20 @@ if(photoPage>1&&ps.list.length===1)photoPage--;
 await loadPhotos();say("照片已删除")
 }catch(e){say(e.message)}
 };
-box.append(name,del);card.append(img,box);$("photos").append(card)
-}
-}catch(e){say("加载照片失败："+e.message)}
+box.append(name,del);card.append(img,box);$("photos").append(card);
+return {p,img}
+});
+await mapLimit(cards,5,async item=>{
+try{
+let response=await fetch("/api/photo-file?id="+item.p.id+"&variant=thumb",{headers:{Authorization:"Bearer "+token}});
+if(!response.ok)throw Error("图片读取失败");
+let blob=await response.blob();
+let objectUrl=URL.createObjectURL(blob);imageUrls.push(objectUrl);
+if(seq===adminLoadSeq)item.img.src=objectUrl;
+else URL.revokeObjectURL(objectUrl)
+}catch(e){item.img.alt="图片加载失败"}
+})
+}catch(e){if(seq===adminLoadSeq)say("加载照片失败："+e.message)}
 }
 $("photoPageSize").onchange=async()=>{
 photoPageSize=Number($("photoPageSize").value)||20;
@@ -273,13 +291,13 @@ button:active{transform:scale(.98)}
 .hidden{display:none!important}
 #msg{color:#ffcf83;text-align:center;margin:12px 0;min-height:22px;font-size:13px}
 #viewPagination{display:none;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:20px;color:#8fa4c5;font-size:13px}
-#viewer{position:fixed;inset:0;background:#030711f5;display:none;align-items:center;justify-content:center;z-index:10;padding:55px 65px}
-#viewer img{max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 15px 70px #0009}
-#viewer button{position:absolute;background:#ffffff18;color:white;border:1px solid #ffffff24;backdrop-filter:blur(8px)}
-#close{right:20px;top:20px}
+#viewer{position:fixed;inset:0;background:#030711;display:none;align-items:center;justify-content:center;z-index:1000;padding:0;touch-action:pan-y;overscroll-behavior:contain}
+#viewer img{width:100%;height:100%;max-width:100vw;max-height:100dvh;object-fit:contain;box-shadow:none;user-select:none;-webkit-user-drag:none}
+#viewer button{position:absolute;background:#ffffff18;color:white;border:1px solid #ffffff24;backdrop-filter:blur(8px);z-index:2}
+#close{right:16px;top:16px}
 #prev{left:18px;top:50%;transform:translateY(-50%)}
 #next{right:18px;top:50%;transform:translateY(-50%)}
-#counter{position:absolute;bottom:20px;color:#cbd8ee;font-size:13px}
+#counter{position:absolute;bottom:18px;color:#cbd8ee;font-size:13px;z-index:2;background:#0006;padding:6px 12px;border-radius:20px}
 @media(max-width:600px){
 main{padding:20px 13px 40px}
 header{margin-bottom:20px}
@@ -287,9 +305,10 @@ header{margin-bottom:20px}
 #login{margin:65px auto;padding:30px 22px}
 #photos{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .photo-wrap{border-radius:11px}
-#viewer{padding:55px 12px}
-#prev{left:7px}
-#next{right:7px}
+#viewer{padding:0}
+#prev,#next{display:none}
+#close{right:12px;top:12px;padding:9px 13px;font-size:13px;opacity:.65}
+#counter{bottom:12px}
 }
 </style></head><body><main>
 <header><div class="brand"><div class="logo">✦</div><div>私人云相册<div class="sub">PRIVATE PHOTO GALLERY</div></div></div></header>
@@ -314,6 +333,8 @@ header{margin-bottom:20px}
 <script>
 let token="",albums=[],photos=[],current=0,urls=[];
 let viewPage=1,viewPageSize=20,viewTotalPages=0,viewTotal=0,currentAlbumId=null;
+let viewLoadSeq=0,displayLoadSeq=0,displayUrl="";
+let touchStartX=0,touchStartY=0;
 const $=id=>document.getElementById(id);
 function say(s){$("msg").textContent=s}
 async function api(path){
@@ -322,7 +343,20 @@ const data=await r.json().catch(()=>({}));
 if(!r.ok)throw Error(data.error||"请求失败，请重新登录");
 return data
 }
-function clearUrls(){urls.forEach(u=>URL.revokeObjectURL(u));urls=[]}
+function clearUrls(){
+urls.forEach(u=>URL.revokeObjectURL(u));urls=[];
+if(displayUrl){URL.revokeObjectURL(displayUrl);displayUrl=""}
+}
+async function mapLimit(items,limit,fn){
+let next=0;
+const workers=Array.from({length:Math.min(limit,items.length)},async()=>{
+while(next<items.length){
+const i=next++;
+await fn(items[i],i)
+}
+});
+await Promise.all(workers)
+}
 async function loadAlbums(){
 albums=await api("/api/albums");$("albums").innerHTML="";
 $("albumCount").textContent=albums.length+" 个相册";
@@ -339,9 +373,11 @@ $("albums").append(b)
 viewPage=1;await loadPhotos(albums[0].id)
 }
 async function loadPhotos(id){
+const seq=++viewLoadSeq;
 try{
 currentAlbumId=id;clearUrls();$("photos").innerHTML="";photos=[];
 const resp=await api("/api/photos?album_id="+id+"&page="+viewPage+"&page_size="+viewPageSize);
+if(seq!==viewLoadSeq)return;
 photos=resp.list;viewPage=resp.page;viewTotal=resp.total;viewTotalPages=resp.total_pages;
 const album=albums.find(a=>a.id===id);
 $("albumTitle").textContent=album?album.name:"照片";
@@ -356,15 +392,23 @@ if(!photos.length){
 $("photos").innerHTML='<div class="empty"><div class="empty-icon">▧</div>这个相册还没有照片</div>';
 return
 }
-for(let i=0;i<photos.length;i++){
-const p=photos[i];const wrap=document.createElement("div");wrap.className="photo-wrap";
+const cards=photos.map((p,i)=>{
+const wrap=document.createElement("div");wrap.className="photo-wrap";
 const img=document.createElement("img");img.className="photo";img.alt=p.filename;img.loading="lazy";
-const r=await fetch("/api/photo-file?id="+p.id,{headers:{Authorization:"Bearer "+token}});
+img.onclick=()=>openPhoto(i);
+wrap.append(img);$("photos").append(wrap);
+return {p,img}
+});
+await mapLimit(cards,5,async item=>{
+try{
+const r=await fetch("/api/photo-file?id="+item.p.id+"&variant=thumb",{headers:{Authorization:"Bearer "+token}});
 if(!r.ok)throw Error("照片读取失败");
-const blob=await r.blob();const u=URL.createObjectURL(blob);urls.push(u);
-img.src=u;img.onclick=()=>openPhoto(i);wrap.append(img);$("photos").append(wrap)
-}
-}catch(e){say(e.message)}
+const blob=await r.blob();const u=URL.createObjectURL(blob);
+if(seq===viewLoadSeq){urls.push(u);item.img.src=u}
+else URL.revokeObjectURL(u)
+}catch(e){item.img.alt="图片加载失败"}
+})
+}catch(e){if(seq===viewLoadSeq)say(e.message)}
 }
 $("viewPageSize").onchange=async()=>{
 viewPageSize=Number($("viewPageSize").value)||20;
@@ -373,10 +417,50 @@ if(currentAlbumId!==null)await loadPhotos(currentAlbumId)
 };
 $("viewPrev").onclick=async()=>{if(viewPage>1){viewPage--;await loadPhotos(currentAlbumId)}};
 $("viewNext").onclick=async()=>{if(viewPage<viewTotalPages){viewPage++;await loadPhotos(currentAlbumId)}};
-function openPhoto(i){current=i;$("viewer").style.display="flex";showPhoto()}
-function showPhoto(){if(!photos.length)return;$("big").src=urls[current];$("counter").textContent=(current+1)+" / "+photos.length}
-function closePhoto(){$("viewer").style.display="none";$("big").src=""}
-function movePhoto(n){if(!photos.length)return;current=(current+n+photos.length)%photos.length;showPhoto()}
+function openPhoto(i){
+current=i;$("viewer").style.display="flex";
+document.body.style.overflow="hidden";
+showPhoto()
+}
+async function showPhoto(){
+if(!photos.length)return;
+const seq=++displayLoadSeq;
+if(displayUrl){URL.revokeObjectURL(displayUrl);displayUrl=""}
+const p=photos[current];
+$("big").src=urls[current]||"";
+$("counter").textContent=(current+1)+" / "+photos.length;
+try{
+const r=await fetch("/api/photo-file?id="+p.id+"&variant=display",{headers:{Authorization:"Bearer "+token}});
+if(!r.ok)throw Error("高清图片读取失败");
+const blob=await r.blob();
+const u=URL.createObjectURL(blob);
+if(seq!==displayLoadSeq){URL.revokeObjectURL(u);return}
+displayUrl=u;$("big").src=u
+}catch(e){
+if(seq===displayLoadSeq)say(e.message)
+}
+}
+function closePhoto(){
+displayLoadSeq++;
+$("viewer").style.display="none";$("big").src="";
+document.body.style.overflow="";
+if(displayUrl){URL.revokeObjectURL(displayUrl);displayUrl=""}
+}
+function movePhoto(n){
+if(!photos.length)return;
+current=(current+n+photos.length)%photos.length;
+showPhoto()
+}
+$("viewer").addEventListener("touchstart",e=>{
+if(e.touches.length!==1)return;
+touchStartX=e.touches[0].clientX;touchStartY=e.touches[0].clientY
+},{passive:true});
+$("viewer").addEventListener("touchend",e=>{
+if($("viewer").style.display!=="flex"||!e.changedTouches.length)return;
+const dx=e.changedTouches[0].clientX-touchStartX;
+const dy=e.changedTouches[0].clientY-touchStartY;
+if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.25)movePhoto(dx<0?1:-1)
+},{passive:true});
 $("loginBtn").onclick=async()=>{
 try{
 const r=await fetch("/api/view-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("password").value})});
@@ -415,7 +499,9 @@ if(!payload||!sig||!env.ALBUM_SESSION_SECRET)return false;
 const expected=await signToken(env.ALBUM_SESSION_SECRET,payload);
 if(sig!==expected)return false;
 try{
-const p=JSON.parse(atob(payload.replace(/-/g,"+").replace(/_/g,"/")));
+let encoded=payload.replace(/-/g,"+").replace(/_/g,"/");
+encoded+="=".repeat((4-encoded.length%4)%4);
+const p=JSON.parse(atob(encoded));
 const role=p.role||"admin";
 return p.exp>Date.now()&&allowedRoles.includes(role)
 }catch{return false}
@@ -481,6 +567,7 @@ return json({success:true})
 
 if(path==="/api/photos"&&request.method==="GET"){
 const id=Number(url.searchParams.get("album_id"));
+if(!id)return json({error:"相册编号不正确"},400);
 let page=Number(url.searchParams.get("page"))||1;
 let page_size=Number(url.searchParams.get("page_size"))||20;
 page_size=Math.max(1,Math.min(100,page_size));
@@ -491,7 +578,7 @@ const total_pages=Math.ceil(total/page_size);
 if(total_pages>0)page=Math.min(page,total_pages);
 const offset=(page-1)*page_size;
 const {results}=await env.DB.prepare(
-"SELECT id,album_id,filename,cloudinary_url,public_id,created_at FROM photos WHERE album_id=? ORDER BY id DESC LIMIT ? OFFSET ?"
+"SELECT id,album_id,filename,created_at FROM photos WHERE album_id=? ORDER BY id DESC LIMIT ? OFFSET ?"
 ).bind(id,page_size,offset).all();
 return json({list:results,page,page_size,total,total_pages})
 }
@@ -520,18 +607,55 @@ env.DB.prepare("SELECT id,album_id,filename,cloudinary_url,public_id,created_at 
 ]);
 return json({albums:a.results,photos:p.results})
 }
+
 if(path==="/api/photo-file"&&request.method==="GET"){
 const id=Number(url.searchParams.get("id"));
+const variant=url.searchParams.get("variant")||"original";
+if(!id)return json({error:"照片编号不正确"},400);
+if(!["original","thumb","display"].includes(variant))return json({error:"图片版本参数不正确"},400);
+
 const p=await env.DB.prepare("SELECT filename,cloudinary_url FROM photos WHERE id=?").bind(id).first();
 if(!p)return json({error:"照片不存在"},404);
-const r=await fetch(p.cloudinary_url);
-if(!r.ok)return json({error:"无法从 Cloudinary 读取原图"},502);
+
+let sourceUrl=p.cloudinary_url;
+if(variant==="thumb"||variant==="display"){
+const transform=variant==="thumb"?"f_auto,q_auto,w_500,c_limit":"f_auto,q_auto,w_1600,c_limit";
+if(sourceUrl.includes("/upload/")){
+sourceUrl=sourceUrl.replace("/upload/","/upload/"+transform+"/")
+}
+}
+
+const cacheable=variant!=="original";
+const cacheKey=new Request(url.origin+"/__album_photo_cache/"+id+"/"+variant);
+const cache=cacheable?caches.default:null;
+
+if(cache){
+try{
+const cached=await cache.match(cacheKey);
+if(cached)return cached
+}catch(e){}
+}
+
+const r=await fetch(sourceUrl);
+if(!r.ok)return json({error:"无法从 Cloudinary 读取图片"},502);
+
 const headers=new Headers();
 headers.set("Content-Type",r.headers.get("Content-Type")||"application/octet-stream");
 headers.set("Content-Disposition","inline; filename*=UTF-8''"+encodeURIComponent(p.filename));
-headers.set("Cache-Control","private, no-store");
-return new Response(r.body,{headers})
+if(cacheable){
+headers.set("Cache-Control","public, max-age=86400");
+headers.set("X-Content-Type-Options","nosniff")
+}else{
+headers.set("Cache-Control","private, no-store")
 }
+const response=new Response(r.body,{status:r.status,headers});
+
+if(cache){
+try{await cache.put(cacheKey,response.clone())}catch(e){}
+}
+return response
+}
+
 if(path.startsWith("/api/photos/")&&request.method==="DELETE"){
 const id=Number(path.split("/").pop());
 const p=await env.DB.prepare("SELECT public_id FROM photos WHERE id=?").bind(id).first();
