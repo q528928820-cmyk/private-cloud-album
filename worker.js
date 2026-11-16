@@ -1,4 +1,3 @@
-
 const VIEW_HTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -27,9 +26,8 @@ h2{margin:0 0 8px;font-size:23px}
 .login-desc{color:#91a3bd;font-size:13px;margin-bottom:25px}
 input{width:100%;font:inherit;padding:14px 15px;border-radius:11px;border:1px solid #344762;background:#0c1728;color:white;outline:none}
 input:focus{border-color:#78a5ff;box-shadow:0 0 0 3px #5c8df52b}
-button,select{font:inherit;border:0;border-radius:11px;padding:12px 18px;background:#6595ff;color:#08152b;font-weight:700;cursor:pointer}
+button{font:inherit;border:0;border-radius:11px;padding:12px 18px;background:#6595ff;color:#08152b;font-weight:700;cursor:pointer}
 button:active{transform:scale(.98)}
-button:disabled{opacity:.35;cursor:not-allowed;transform:none}
 #loginBtn{width:100%;margin-top:13px}
 #albums{display:flex;gap:9px;flex-wrap:wrap;margin-top:17px}
 .album{background:#23334b;color:#c6d6f0;border:1px solid #ffffff12;padding:10px 17px;border-radius:30px;font-size:14px}
@@ -45,32 +43,6 @@ button:disabled{opacity:.35;cursor:not-allowed;transform:none}
 .empty-icon{font-size:34px;margin-bottom:10px}
 .hidden{display:none!important}
 #msg{color:#ffcf83;text-align:center;margin:12px 0;min-height:22px;font-size:13px}
-
-/* 前台分页 */
-#pagination{
- display:flex;
- align-items:center;
- justify-content:center;
- flex-wrap:wrap;
- gap:10px;
- margin-top:22px;
-}
-#pagination button{
- padding:10px 16px;
- background:#263b59;
- color:#dce8ff;
- border:1px solid #ffffff18;
-}
-#pagination button:disabled{opacity:.35}
-#pageInfo{color:#a9bbd7;font-size:13px;min-width:90px;text-align:center}
-#pageSize{
- background:#263b59;
- color:#dce8ff;
- border:1px solid #ffffff18;
- padding:9px 12px;
- border-radius:10px;
-}
-#pagination label{color:#91a3bd;font-size:13px}
 
 /* 照片查看器：全屏，无按钮，无网页内容 */
 #viewer{
@@ -118,10 +90,6 @@ button:disabled{opacity:.35;cursor:not-allowed;transform:none}
  #login{margin:65px auto;padding:30px 22px}
  #photos{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
  .photo-wrap{border-radius:11px}
- #pagination{gap:7px}
- #pagination button{padding:9px 12px;font-size:13px}
- #pageInfo{min-width:75px;font-size:12px}
- #pageSize{padding:8px;font-size:13px}
 }
 </style>
 </head>
@@ -150,16 +118,6 @@ button:disabled{opacity:.35;cursor:not-allowed;transform:none}
  <section class="panel">
   <div class="section-head"><h3 id="albumTitle">照片</h3><span id="count"></span></div>
   <div id="photos"></div>
-  <div id="pagination" class="hidden">
-   <button id="prevPage" type="button">上一页</button>
-   <span id="pageInfo">第1页 / 共1页</span>
-   <button id="nextPage" type="button">下一页</button>
-   <label for="pageSize">每页</label>
-   <select id="pageSize">
-    <option value="10">10张</option>
-    <option value="20" selected>20张</option>
-   </select>
-  </div>
  </section>
 </div>
 <div id="msg"></div>
@@ -172,8 +130,6 @@ let token="",albums=[],photos=[],current=0,urls=[];
 let viewerHistory=false;
 let viewerOpen=false;
 let touchStartX=0,touchStartY=0;
-let currentPage=1;
-let pageSize=20;
 
 const $=id=>document.getElementById(id);
 
@@ -200,7 +156,6 @@ async function loadAlbums(){
   $("albumTitle").textContent="还没有相册";
   $("photos").innerHTML='<div class="empty"><div class="empty-icon">▧</div>还没有创建相册</div>';
   $("count").textContent="";
-  $("pagination").classList.add("hidden");
   return;
  }
 
@@ -218,9 +173,7 @@ async function loadAlbums(){
 async function loadPhotos(id){
  try{
   clearUrls();
-  currentPage=1;
   $("photos").innerHTML="";
-  $("pagination").classList.add("hidden");
   photos=await api("/api/photos?album_id="+id);
 
   const album=albums.find(a=>a.id===id);
@@ -237,9 +190,15 @@ async function loadPhotos(id){
    return;
   }
 
-  // 获取照片数据，保留原来的照片查看功能
   for(let i=0;i<photos.length;i++){
    const p=photos[i];
+   const wrap=document.createElement("div");
+   wrap.className="photo-wrap";
+
+   const img=document.createElement("img");
+   img.className="photo";
+   img.alt=p.filename;
+   img.loading="lazy";
 
    const r=await fetch("/api/photo-file?id="+p.id,{
     headers:{Authorization:"Bearer "+token}
@@ -248,72 +207,19 @@ async function loadPhotos(id){
    if(!r.ok)throw Error("照片读取失败");
 
    const blob=await r.blob();
-   urls[i]=URL.createObjectURL(blob);
-  }
+   const u=URL.createObjectURL(blob);
+   urls.push(u);
 
-  renderPhotoPage();
+   img.src=u;
+   img.onclick=()=>openPhoto(i);
+
+   wrap.append(img);
+   $("photos").append(wrap);
+  }
  }catch(e){
   say(e.message);
  }
 }
-
-/* 渲染当前页照片 */
-function renderPhotoPage(){
- const totalPages=Math.max(1,Math.ceil(photos.length/pageSize));
-
- if(currentPage>totalPages)currentPage=totalPages;
- if(currentPage<1)currentPage=1;
-
- $("photos").innerHTML="";
-
- const start=(currentPage-1)*pageSize;
- const end=Math.min(start+pageSize,photos.length);
-
- for(let i=start;i<end;i++){
-  const p=photos[i];
-  const wrap=document.createElement("div");
-  wrap.className="photo-wrap";
-
-  const img=document.createElement("img");
-  img.className="photo";
-  img.alt=p.filename||"照片";
-  img.loading="lazy";
-  img.src=urls[i];
-  img.onclick=()=>openPhoto(i);
-
-  wrap.append(img);
-  $("photos").append(wrap);
- }
-
- $("pagination").classList.remove("hidden");
- $("pageInfo").textContent="第 "+currentPage+" 页 / 共 "+totalPages+" 页";
- $("prevPage").disabled=currentPage<=1;
- $("nextPage").disabled=currentPage>=totalPages;
-}
-
-/* 分页按钮 */
-$("prevPage").onclick=()=>{
- if(currentPage>1){
-  currentPage--;
-  renderPhotoPage();
-  window.scrollTo({top:0,behavior:"smooth"});
- }
-};
-
-$("nextPage").onclick=()=>{
- const totalPages=Math.ceil(photos.length/pageSize);
- if(currentPage<totalPages){
-  currentPage++;
-  renderPhotoPage();
-  window.scrollTo({top:0,behavior:"smooth"});
- }
-};
-
-$("pageSize").onchange=()=>{
- pageSize=Number($("pageSize").value)||20;
- currentPage=1;
- renderPhotoPage();
-};
 
 /* 打开照片：优先请求浏览器原生全屏 */
 function openPhoto(i){
@@ -337,6 +243,8 @@ function openPhoto(i){
   viewerHistory=true;
  }
 
+ // 点击照片的同一个操作中直接请求全屏
+ // 不支持的浏览器自动保留网页全屏效果
  const request=
   viewer.requestFullscreen||
   viewer.webkitRequestFullscreen||
@@ -360,7 +268,7 @@ function openPhoto(i){
 
 function showPhoto(){
  if(!photos.length)return;
- $("big").src=urls[current]||"";
+ $("big").src=urls[current];
 }
 
 function closePhoto(fromPop=false){
