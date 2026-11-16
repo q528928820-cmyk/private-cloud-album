@@ -44,40 +44,49 @@ button:active{transform:scale(.98)}
 .hidden{display:none!important}
 #msg{color:#ffcf83;text-align:center;margin:12px 0;min-height:22px;font-size:13px}
 
-/* 照片查看器：全屏，无按钮，无网页内容 */
+/* 看图时藏起相册，避免从缝里露出页面 */
+html.viewing,html.viewing body{
+ background:#000;
+ overflow:hidden;
+ height:100%;
+}
+html.viewing main{visibility:hidden}
+
+/* 照片查看器：铺满可见屏幕，没有按钮 */
 #viewer{
  position:fixed;
- inset:0;
- width:100vw;
- height:100vh;
- height:100dvh;
+ top:0;
+ left:0;
+ right:0;
+ bottom:0;
+ width:100%;
+ height:100%;
+ min-height:100vh;
+ min-height:100dvh;
  background:#000;
  display:none;
- align-items:center;
- justify-content:center;
  z-index:2147483647;
  overflow:hidden;
- padding:0;
  margin:0;
+ padding:0;
  touch-action:none;
  overscroll-behavior:none;
 }
 #viewer:fullscreen,
 #viewer:-webkit-full-screen{
- width:100vw;
- height:100vh;
- height:100dvh;
+ width:100%;
+ height:100%;
  background:#000;
 }
 #big{
- display:block;
+ position:absolute;
+ top:0;
+ left:0;
  width:100%;
  height:100%;
- max-width:100%;
- max-height:100%;
  object-fit:contain;
  object-position:center;
- box-shadow:none;
+ background:#000;
  user-select:none;
  -webkit-user-select:none;
  -webkit-user-drag:none;
@@ -129,6 +138,7 @@ button:active{transform:scale(.98)}
 let token="",albums=[],photos=[],current=0,urls=[];
 let viewerHistory=false;
 let viewerOpen=false;
+let fullscreenEntered=false;
 let touchStartX=0,touchStartY=0;
 
 const $=id=>document.getElementById(id);
@@ -221,18 +231,51 @@ async function loadPhotos(id){
  }
 }
 
-/* 打开照片：优先请求浏览器原生全屏 */
+/* 按手机可见区域铺满，避免地址栏把页面挤出来 */
+function fitViewer(){
+ if(!viewerOpen)return;
+ const viewer=$("viewer");
+ const isFull=
+  document.fullscreenElement||
+  document.webkitFullscreenElement||
+  document.mozFullScreenElement||
+  document.msFullscreenElement;
+ if(isFull){
+  viewer.style.top="0";
+  viewer.style.left="0";
+  viewer.style.width="100%";
+  viewer.style.height="100%";
+  return;
+ }
+ const v=window.visualViewport;
+ if(v){
+  viewer.style.top=v.offsetTop+"px";
+  viewer.style.left=v.offsetLeft+"px";
+  viewer.style.width=v.width+"px";
+  viewer.style.height=v.height+"px";
+ }else{
+  viewer.style.top="0";
+  viewer.style.left="0";
+  viewer.style.width="100%";
+  viewer.style.height="100%";
+ }
+}
+
+/* 打开照片：整屏只有这一张，没有按钮 */
 function openPhoto(i){
  if(!photos.length)return;
 
  current=i;
  viewerOpen=true;
+ fullscreenEntered=false;
 
  const viewer=$("viewer");
- viewer.style.display="flex";
+ viewer.style.display="block";
+ document.documentElement.classList.add("viewing");
  document.body.style.overflow="hidden";
 
  showPhoto();
+ fitViewer();
 
  if(!viewerHistory){
   history.pushState(
@@ -243,8 +286,6 @@ function openPhoto(i){
   viewerHistory=true;
  }
 
- // 点击照片的同一个操作中直接请求全屏
- // 不支持的浏览器自动保留网页全屏效果
  const request=
   viewer.requestFullscreen||
   viewer.webkitRequestFullscreen||
@@ -254,9 +295,7 @@ function openPhoto(i){
  if(request){
   try{
    const result=request.call(viewer,{navigationUI:"hide"});
-   if(result&&typeof result.catch==="function"){
-    result.catch(()=>{});
-   }
+   if(result&&typeof result.catch==="function")result.catch(()=>{});
   }catch(e){
    try{
     const fallback=request.call(viewer);
@@ -275,9 +314,11 @@ function closePhoto(fromPop=false){
  if(!viewerOpen)return;
 
  viewerOpen=false;
+ fullscreenEntered=false;
 
  $("viewer").style.display="none";
  $("big").src="";
+ document.documentElement.classList.remove("viewing");
  document.body.style.overflow="";
 
  const exit=
@@ -390,7 +431,7 @@ window.addEventListener("popstate",()=>{
  }
 });
 
-/* 监听浏览器退出全屏 */
+/* 只有真正进入过全屏、再退出时才关闭。失败时保持黑底全屏 */
 function onFullscreenChange(){
  const isFull=
   document.fullscreenElement||
@@ -398,7 +439,14 @@ function onFullscreenChange(){
   document.mozFullScreenElement||
   document.msFullscreenElement;
 
- if(viewerOpen&&!isFull){
+ if(isFull){
+  fullscreenEntered=true;
+  fitViewer();
+  return;
+ }
+
+ if(viewerOpen&&fullscreenEntered){
+  fullscreenEntered=false;
   closePhoto();
  }
 }
@@ -407,6 +455,11 @@ document.addEventListener("fullscreenchange",onFullscreenChange);
 document.addEventListener("webkitfullscreenchange",onFullscreenChange);
 document.addEventListener("mozfullscreenchange",onFullscreenChange);
 document.addEventListener("MSFullscreenChange",onFullscreenChange);
+
+if(window.visualViewport){
+ window.visualViewport.addEventListener("resize",fitViewer);
+ window.visualViewport.addEventListener("scroll",fitViewer);
+}
 </script>
 </body>
 </html>`;
