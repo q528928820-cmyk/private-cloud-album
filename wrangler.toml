@@ -4,11 +4,6 @@ main = "worker.js"
 compatibility_date = "2026-11-16"
 
 [assets]
-directory = "./."
+directory = "."
 binding = "ASSETS"
 run_worker_first = true
-
-[[d1_databases]]
-binding = "DB"
-database_name = "你的D1数据库名称"
-database_id = "你的D1数据库ID"
