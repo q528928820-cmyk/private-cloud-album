@@ -1,8 +1,18 @@
 const VIEW_HTML = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>私人云相册 - 浏览</title><style>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>私人云相册 - 浏览</title>
+<style>
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:radial-gradient(ellipse at 50% -20%,#263b5d 0,#101a2b 45%,#080e18 100%);color:#edf3ff;font:15px system-ui,"Microsoft YaHei",sans-serif}
+html,body{
+ margin:0;min-height:100%;
+ background:radial-gradient(ellipse at 50% -20%,#263b5d 0,#101a2b 45%,#080e18 100%);
+ color:#edf3ff;font:15px system-ui,"Microsoft YaHei",sans-serif
+}
 body{overscroll-behavior:none}
 main{max-width:1120px;margin:0 auto;padding:30px 20px 60px}
 header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
@@ -34,7 +44,7 @@ button:active{transform:scale(.98)}
 .hidden{display:none!important}
 #msg{color:#ffcf83;text-align:center;margin:12px 0;min-height:22px;font-size:13px}
 
-/* 全屏照片：不显示网页按钮和其他界面 */
+/* 照片查看器：全屏，无按钮，无网页内容 */
 #viewer{
  position:fixed;
  inset:0;
@@ -45,10 +55,19 @@ button:active{transform:scale(.98)}
  display:none;
  align-items:center;
  justify-content:center;
- z-index:999999;
+ z-index:2147483647;
  overflow:hidden;
  padding:0;
+ margin:0;
  touch-action:none;
+ overscroll-behavior:none;
+}
+#viewer:fullscreen,
+#viewer:-webkit-full-screen{
+ width:100vw;
+ height:100vh;
+ height:100dvh;
+ background:#000;
 }
 #big{
  display:block;
@@ -57,8 +76,10 @@ button:active{transform:scale(.98)}
  max-width:100%;
  max-height:100%;
  object-fit:contain;
+ object-position:center;
  box-shadow:none;
  user-select:none;
+ -webkit-user-select:none;
  -webkit-user-drag:none;
  pointer-events:none;
 }
@@ -70,31 +91,74 @@ button:active{transform:scale(.98)}
  #photos{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
  .photo-wrap{border-radius:11px}
 }
-</style></head><body><main>
-<header><div class="brand"><div class="logo">✦</div><div>私人云相册<div class="sub">PRIVATE PHOTO GALLERY</div></div></div></header>
-<section id="login" class="panel"><div class="login-icon">◈</div><h2>欢迎回来</h2><div class="login-desc">输入浏览密码，开启私人照片之旅</div><input id="password" type="password" placeholder="请输入浏览密码"><button id="loginBtn">进入相册</button></section>
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div class="brand">
+  <div class="logo">✦</div>
+  <div>私人云相册<div class="sub">PRIVATE PHOTO GALLERY</div></div>
+ </div>
+</header>
+
+<section id="login" class="panel">
+ <div class="login-icon">◈</div>
+ <h2>欢迎回来</h2>
+ <div class="login-desc">输入浏览密码，开启私人照片之旅</div>
+ <input id="password" type="password" placeholder="请输入浏览密码">
+ <button id="loginBtn">进入相册</button>
+</section>
+
 <div id="app" class="hidden">
-<section class="panel"><div class="section-head"><h3>我的相册</h3><span id="albumCount"></span></div><div id="albums"></div></section>
-<section class="panel"><div class="section-head"><h3 id="albumTitle">照片</h3><span id="count"></span></div><div id="photos"></div></section>
-</div><div id="msg"></div></main>
+ <section class="panel">
+  <div class="section-head"><h3>我的相册</h3><span id="albumCount"></span></div>
+  <div id="albums"></div>
+ </section>
+ <section class="panel">
+  <div class="section-head"><h3 id="albumTitle">照片</h3><span id="count"></span></div>
+  <div id="photos"></div>
+ </section>
+</div>
+<div id="msg"></div>
+</main>
+
 <div id="viewer"><img id="big" draggable="false"></div>
+
 <script>
 let token="",albums=[],photos=[],current=0,urls=[];
-let viewerHistory=false,touchStartX=0,touchStartY=0;
+let viewerHistory=false;
+let viewerOpen=false;
+let touchStartX=0,touchStartY=0;
+
 const $=id=>document.getElementById(id);
+
 function say(s){$("msg").textContent=s}
-async function api(path){const r=await fetch(path,{headers:{Authorization:"Bearer "+token}});const data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||"请求失败，请重新登录");return data}
-function clearUrls(){urls.forEach(u=>URL.revokeObjectURL(u));urls=[]}
+
+async function api(path){
+ const r=await fetch(path,{headers:{Authorization:"Bearer "+token}});
+ const data=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(data.error||"请求失败，请重新登录");
+ return data;
+}
+
+function clearUrls(){
+ urls.forEach(u=>URL.revokeObjectURL(u));
+ urls=[];
+}
+
 async function loadAlbums(){
  albums=await api("/api/albums");
  $("albums").innerHTML="";
  $("albumCount").textContent=albums.length+" 个相册";
+
  if(!albums.length){
   $("albumTitle").textContent="还没有相册";
   $("photos").innerHTML='<div class="empty"><div class="empty-icon">▧</div>还没有创建相册</div>';
   $("count").textContent="";
   return;
  }
+
  albums.forEach(a=>{
   const b=document.createElement("button");
   b.className="album";
@@ -102,114 +166,247 @@ async function loadAlbums(){
   b.onclick=()=>loadPhotos(a.id);
   $("albums").append(b);
  });
+
  await loadPhotos(albums[0].id);
 }
+
 async function loadPhotos(id){
  try{
   clearUrls();
   $("photos").innerHTML="";
   photos=await api("/api/photos?album_id="+id);
+
   const album=albums.find(a=>a.id===id);
   $("albumTitle").textContent=album?album.name:"照片";
-  [...$("albums").children].forEach((b,i)=>b.classList.toggle("active",albums[i].id===id));
+
+  [...$("albums").children].forEach((b,i)=>{
+   b.classList.toggle("active",albums[i].id===id);
+  });
+
   $("count").textContent=photos.length+" 张照片";
+
   if(!photos.length){
    $("photos").innerHTML='<div class="empty"><div class="empty-icon">▧</div>这个相册还没有照片</div>';
    return;
   }
+
   for(let i=0;i<photos.length;i++){
    const p=photos[i];
    const wrap=document.createElement("div");
    wrap.className="photo-wrap";
+
    const img=document.createElement("img");
    img.className="photo";
    img.alt=p.filename;
    img.loading="lazy";
-   const r=await fetch("/api/photo-file?id="+p.id,{headers:{Authorization:"Bearer "+token}});
+
+   const r=await fetch("/api/photo-file?id="+p.id,{
+    headers:{Authorization:"Bearer "+token}
+   });
+
    if(!r.ok)throw Error("照片读取失败");
+
    const blob=await r.blob();
    const u=URL.createObjectURL(blob);
    urls.push(u);
+
    img.src=u;
    img.onclick=()=>openPhoto(i);
+
    wrap.append(img);
    $("photos").append(wrap);
   }
- }catch(e){say(e.message)}
-}
-function openPhoto(i){
- current=i;
- $("viewer").style.display="flex";
- document.body.style.overflow="hidden";
- showPhoto();
- if(!viewerHistory){
-  history.pushState({photoViewer:true},"","#photo");
-  viewerHistory=true;
+ }catch(e){
+  say(e.message);
  }
 }
+
+/* 打开照片：优先请求浏览器原生全屏 */
+function openPhoto(i){
+ if(!photos.length)return;
+
+ current=i;
+ viewerOpen=true;
+
+ const viewer=$("viewer");
+ viewer.style.display="flex";
+ document.body.style.overflow="hidden";
+
+ showPhoto();
+
+ if(!viewerHistory){
+  history.pushState(
+   {photoViewer:true},
+   "",
+   location.pathname+location.search+"#photo"
+  );
+  viewerHistory=true;
+ }
+
+ // 点击照片的同一个操作中直接请求全屏
+ // 不支持的浏览器自动保留网页全屏效果
+ const request=
+  viewer.requestFullscreen||
+  viewer.webkitRequestFullscreen||
+  viewer.mozRequestFullScreen||
+  viewer.msRequestFullscreen;
+
+ if(request){
+  try{
+   const result=request.call(viewer,{navigationUI:"hide"});
+   if(result&&typeof result.catch==="function"){
+    result.catch(()=>{});
+   }
+  }catch(e){
+   try{
+    const fallback=request.call(viewer);
+    if(fallback&&typeof fallback.catch==="function")fallback.catch(()=>{});
+   }catch(err){}
+  }
+ }
+}
+
 function showPhoto(){
  if(!photos.length)return;
  $("big").src=urls[current];
 }
+
 function closePhoto(fromPop=false){
+ if(!viewerOpen)return;
+
+ viewerOpen=false;
+
  $("viewer").style.display="none";
  $("big").src="";
  document.body.style.overflow="";
+
+ const exit=
+  document.exitFullscreen||
+  document.webkitExitFullscreen||
+  document.mozCancelFullScreen||
+  document.msExitFullscreen;
+
+ const isFull=
+  document.fullscreenElement||
+  document.webkitFullscreenElement||
+  document.mozFullScreenElement||
+  document.msFullscreenElement;
+
+ if(isFull&&exit){
+  try{
+   const result=exit.call(document);
+   if(result&&typeof result.catch==="function")result.catch(()=>{});
+  }catch(e){}
+ }
+
  if(viewerHistory){
   viewerHistory=false;
   if(!fromPop)history.back();
  }
 }
+
 function movePhoto(n){
- if(!photos.length)return;
+ if(!viewerOpen||!photos.length)return;
  current=(current+n+photos.length)%photos.length;
  showPhoto();
 }
+
+/* 登录 */
 $("loginBtn").onclick=async()=>{
  try{
-  const r=await fetch("/api/view-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("password").value})});
+  const r=await fetch("/api/view-login",{
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({password:$("password").value})
+  });
+
   const d=await r.json();
   if(!r.ok)throw Error(d.error||"浏览密码错误");
+
   token=d.token;
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
+
   await loadAlbums();
   say("登录成功");
- }catch(e){say(e.message)}
+ }catch(e){
+  say(e.message);
+ }
 };
-$("password").addEventListener("keydown",e=>{if(e.key==="Enter")$("loginBtn").click()});
 
-/* 手机：左右滑动切换照片 */
+$("password").addEventListener("keydown",e=>{
+ if(e.key==="Enter")$("loginBtn").click();
+});
+
+/* 手机：左右滑动切换 */
 $("viewer").addEventListener("touchstart",e=>{
- if(e.touches.length!==1)return;
+ if(!viewerOpen||e.touches.length!==1)return;
  touchStartX=e.touches[0].clientX;
  touchStartY=e.touches[0].clientY;
 },{passive:true});
 
 $("viewer").addEventListener("touchend",e=>{
- if(!e.changedTouches.length)return;
+ if(!viewerOpen||!e.changedTouches.length)return;
+
  const dx=e.changedTouches[0].clientX-touchStartX;
  const dy=e.changedTouches[0].clientY-touchStartY;
+
  if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.2){
   movePhoto(dx<0?1:-1);
  }
+
  touchStartX=0;
  touchStartY=0;
 },{passive:true});
 
-/* 电脑：鼠标点击照片左侧上一张，右侧下一张 */
+/* 电脑：左半边上一张，右半边下一张 */
 $("viewer").addEventListener("click",e=>{
- if(e.clientX<window.innerWidth/2)movePhoto(-1);
- else movePhoto(1);
+ if(!viewerOpen)return;
+
+ if(window.matchMedia("(hover: hover) and (pointer: fine)").matches){
+  movePhoto(e.clientX<window.innerWidth/2?-1:1);
+ }
 });
 
-/* 电脑键盘 Esc 退出 */
+/* 键盘方向键切换，Esc退出 */
 document.addEventListener("keydown",e=>{
- if($("viewer").style.display==="flex"&&e.key==="Escape")closePhoto();
+ if(!viewerOpen)return;
+
+ if(e.key==="Escape"){
+  closePhoto();
+ }else if(e.key==="ArrowLeft"){
+  movePhoto(-1);
+ }else if(e.key==="ArrowRight"){
+  movePhoto(1);
+ }
 });
 
-/* 手机系统返回键退出全屏 */
+/* 手机返回键退出照片 */
 window.addEventListener("popstate",()=>{
- if($("viewer").style.display==="flex")closePhoto(true);
+ if(viewerOpen){
+  closePhoto(true);
+ }else{
+  viewerHistory=false;
+ }
 });
-</script></body></html>`;
+
+/* 监听浏览器退出全屏 */
+function onFullscreenChange(){
+ const isFull=
+  document.fullscreenElement||
+  document.webkitFullscreenElement||
+  document.mozFullScreenElement||
+  document.msFullscreenElement;
+
+ if(viewerOpen&&!isFull){
+  closePhoto();
+ }
+}
+
+document.addEventListener("fullscreenchange",onFullscreenChange);
+document.addEventListener("webkitfullscreenchange",onFullscreenChange);
+document.addEventListener("mozfullscreenchange",onFullscreenChange);
+document.addEventListener("MSFullscreenChange",onFullscreenChange);
+</script>
+</body>
+</html>`;
