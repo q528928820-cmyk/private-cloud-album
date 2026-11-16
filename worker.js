@@ -2,22 +2,88 @@
 const HTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>私人相册</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#182230;font:16px system-ui,"Microsoft YaHei",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6fa;color:#182230;font:16px system-ui,"Microsoft YaHei",sans-serif}
 main{max-width:980px;margin:28px auto;padding:0 16px}
 .panel{background:white;border-radius:14px;padding:20px;margin:14px 0;box-shadow:0 2px 12px #1522380c}
-h1{font-size:25px;margin:0 0 16px}input,button{font:inherit;padding:11px;border:1px solid #ccd3dd;border-radius:9px}
-button{background:#2459d3;color:white;border:0;cursor:pointer}button.secondary{background:#e9eef8;color:#18366f}
-button.danger{background:#b42318}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-.row input{flex:1;min-width:180px}#albums{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.album-wrap{display:flex;gap:4px;align-items:center}.album{background:#e9eef8;color:#18366f}
-.album.active{background:#2459d3;color:white}.album-action{font-size:13px;padding:8px}
+h1{font-size:25px;margin:0 0 16px}
+input,button{font:inherit;padding:11px;border:1px solid #ccd3dd;border-radius:9px}
+button{background:#2459d3;color:white;border:0;cursor:pointer}
+button.secondary{background:#e9eef8;color:#18366f}
+button.danger{background:#b42318}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.row input{flex:1;min-width:180px}
+#albums{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.album-wrap{display:flex;gap:4px;align-items:center}
+.album{background:#e9eef8;color:#18366f}
+.album.active{background:#2459d3;color:white}
+.album-action{font-size:13px;padding:8px}
 #photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}
 .photo{border:1px solid #e3e7ee;border-radius:10px;overflow:hidden;background:#fff}
 .photo img{width:100%;height:170px;object-fit:cover;display:block;background:#eee}
-.photo div{padding:8px}.photo small{display:block;overflow-wrap:anywhere;color:#667085}
-.hidden{display:none!important}.muted{color:#667085;font-size:14px}#msg{white-space:pre-wrap;color:#2459d3;margin-top:10px}
+.photo div{padding:8px}
+.photo small{display:block;overflow-wrap:anywhere;color:#667085}
+.hidden{display:none!important}
+.muted{color:#667085;font-size:14px}
+#msg{white-space:pre-wrap;color:#2459d3;margin-top:10px}
+
+/* 后台登录：手机和电脑全屏居中 */
+.login-screen{
+  position:fixed;
+  inset:0;
+  z-index:100;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  width:100%;
+  min-height:100vh;
+  min-height:100dvh;
+  padding:20px;
+  margin:0;
+  background:#f4f6fa;
+}
+.login-card{
+  width:100%;
+  max-width:400px;
+  margin:0;
+  padding:30px 24px;
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 8px 35px #15223812;
+}
+.login-card h3{
+  margin:0 0 22px;
+  text-align:center;
+  font-size:22px;
+}
+.login-card .row{
+  display:flex;
+  flex-direction:column;
+  width:100%;
+  gap:12px;
+}
+.login-card input{
+  width:100%;
+  min-width:0;
+  padding:13px 14px;
+}
+.login-card button{
+  width:100%;
+  padding:13px;
+}
+@media(max-width:480px){
+  .login-card{padding:26px 20px}
+}
 </style></head><body><main><h1>私人云相册</h1>
-<section id="login" class="panel"><h3>登录</h3><div class="row"><input id="password" type="password" placeholder="输入管理密码"><button id="loginBtn">登录</button></div></section>
+<section id="login" class="login-screen">
+  <div class="panel login-card">
+    <h3>后台管理登录</h3>
+    <div class="row">
+      <input id="password" type="password" placeholder="输入管理密码">
+      <button id="loginBtn">登录</button>
+    </div>
+  </div>
+</section>
 <div id="app" class="hidden">
 <section class="panel"><div class="row"><h3 style="margin:0">我的相册</h3><input id="newAlbum" placeholder="新相册名称"><button id="addAlbum">创建相册</button></div><div id="albums"></div></section>
 <section class="panel"><h3>照片管理</h3><div class="row"><input id="files" type="file" accept="image/*" multiple><button id="upload">上传照片</button></div>
